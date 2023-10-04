@@ -8,17 +8,8 @@ contract PaymasterTest is Test {
     Paymaster public paymaster;
 
     function setUp() public {
-        paymaster = new Paymaster();
+        entrypoint = new EntryPoint();
+        paymaster = new Paymaster(entrypoint);
         paymaster.setNumber(0);
-    }
-
-    function testIncrement() public {
-        paymaster.increment();
-        assertEq(paymaster.number(), 1);
-    }
-
-    function testSetNumber(uint256 x) public {
-        paymaster.setNumber(x);
-        assertEq(paymaster.number(), x);
     }
 }
