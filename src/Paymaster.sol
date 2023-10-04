@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import {BasePaymaster} from "account-abstraction/core/BasePaymaster.sol";
 
-contract Paymaster {
+contract Paymaster is BasePaymaster {
     uint256 public number;
 
     function setNumber(uint256 newNumber) public {
