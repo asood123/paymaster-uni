@@ -4,11 +4,12 @@ pragma solidity ^0.8.12;
 /* solhint-disable reason-string */
 /* solhint-disable no-inline-assembly */
 
-import {BasePaymaster} from "account-abstraction/core/BasePaymaster.sol";
+import {BasePaymaster, _packValidationData} from "account-abstraction/core/BasePaymaster.sol";
 import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {UserOperationLib} from "account-abstraction/interfaces/UserOperation.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+
 /**
  * A sample paymaster that uses external service to decide whether to pay for the UserOp.
  * The paymaster trusts an external signer to sign the transaction.
