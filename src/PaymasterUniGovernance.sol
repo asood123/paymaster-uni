@@ -6,6 +6,7 @@ import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {UserOperationLib} from "account-abstraction/interfaces/UserOperation.sol";
 import "forge-std/console.sol";
+import {GovernorBravoDelegate} from "compound-protocol/contracts/Governance/GovernorBravoDelegate.sol"; 
 
 contract PaymasterUniGovernance is BasePaymaster {
     uint256 public number;
@@ -14,6 +15,7 @@ contract PaymasterUniGovernance is BasePaymaster {
     bytes32 constant CASTVOTE_TYPEHASH = keccak256("castVote(uint256,uint8)");
     bytes32 constant DATA_PART_1 = hex"0000000000000000000000000000000000000000000000000000000000000060";
     bytes32 constant DATA_PART_2 = hex"0000000000000000000000000000000000000000000000000000000000000044";
+    GovernorBravoDelegate public govBravo;
 
 
     constructor(IEntryPoint _entryPoint) BasePaymaster(_entryPoint) {
@@ -132,7 +134,7 @@ contract PaymasterUniGovernance is BasePaymaster {
         if (bytes4(castVoteHash) != bytes4(CASTVOTE_TYPEHASH)) return false;
 
         // TODO: can we call governorBravo on chain to confirm if a proposal is currently pending?
-        uint8 proposalState = GOVERNOR_BRAVO_ADDRESS.call(bytes4(keccak256("state(uint256)")),proposalId);
+        //uint8 proposalState = GOVERNOR_BRAVO_ADDRESS.call(bytes4(keccak256("state(uint256)")),proposalId);
         // require(proposalState, "GovernorBravo call failed");
                 /*
         enum ProposalState {
@@ -145,7 +147,7 @@ contract PaymasterUniGovernance is BasePaymaster {
             Expired,
             Executed
         }*/
-        console.log(proposalState);
+        // console.log(proposalState);
         if (proposalState != 1) return false;
 //        console.logUint(proposalId);
 //        if (proposalId < 51 || proposalId > 100) return false; // TODO: update this if above check is confirmed
