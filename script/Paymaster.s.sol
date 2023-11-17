@@ -2,7 +2,7 @@
 pragma solidity ^0.8.13;
 
 import "forge-std/Script.sol";
-import '../src/PaymasterAcceptAll.sol';
+import '../src/contracts/PaymasterAcceptAll.sol';
 
 // deploy command
 // forge script script/Paymaster.s.sol --rpc-url $SEPOLIA_RPC_URL --broadcast --etherscan-api-key $ETHERSCAN_API_KEY --verify -vvvv
