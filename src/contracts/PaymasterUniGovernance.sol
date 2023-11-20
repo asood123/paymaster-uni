@@ -30,7 +30,7 @@ contract PaymasterUniGovernance is BasePaymaster {
     
     // Requires proposals to be manually added
     mapping(uint256 => ProposalWindow) private _proposals; 
-    uint256 _maxCostAllowed = 123456789; // TODO: calculate reasonable upper bound and update
+    uint256 _maxCostAllowed = 100000; // TODO: calculate reasonable upper bound and update
 
     mapping(address => mapping(uint256 => bool)) public votingRecord;
 
@@ -41,27 +41,23 @@ contract PaymasterUniGovernance is BasePaymaster {
         // TODO: figure out if this is needed; commenting out for now to get tests to pass
         // to support "deterministic address" factory
         // solhint-disable avoid-tx-origin
-        // if (tx.origin != msg.sender) {
-        //     _transferOwnership(tx.origin);
-        // }
+        if (tx.origin != msg.sender) {
+            _transferOwnership(tx.origin);
+        }
     }
 
     /* HELPERS for Paymaster state*/
-    // only needed (Path 2 below) if storage access rules don't allow access to GovernorBravo's proposal data
     function addOrModifyProposal(uint256 _proposalId, uint256 startTimestamp, uint256 endTimestamp, uint256 startBlock, uint256 endBlock) public  onlyOwner{
         _proposals[_proposalId] = ProposalWindow(startTimestamp, endTimestamp, startBlock, endBlock);
     }
 
-
     // needed, in case a proposal is canceled
-    // only needed (Path 2 below) if storage access rules don't allow access to GovernorBravo's proposal data
     function expireProposal(uint256 _proposalId) public  onlyOwner{
         ProposalWindow memory proposalWindow = _proposals[_proposalId];
         require(proposalWindow.startTimestamp > 0, "proposalId not found");
         _proposals[_proposalId] = ProposalWindow(0, 0, 0, 0);
     }
 
-    // only needed (Path 2 below) if storage access rules don't allow access to GovernorBravo's proposal data
     function getProposalId(uint256 _proposalId) public view returns (ProposalWindow memory) {
         return _proposals[_proposalId];
     }
@@ -71,7 +67,7 @@ contract PaymasterUniGovernance is BasePaymaster {
     }
 
     /* Helpers for validation */
-    function _verifyCallData(bytes calldata callData) private view {
+    function _verifyCallData(bytes calldata callData) private pure {
         // extract initial `execute` signature
         // need to extract this separately because of the way abi.decode works
         bytes4 executeSig = bytes4(callData[:4]);
@@ -83,7 +79,7 @@ contract PaymasterUniGovernance is BasePaymaster {
             bytes32 data1, 
             bytes32 data2, 
             bytes32 castVoteHash,
-            uint256 proposalId,
+            , // proposalId
             uint256 support256
             ) = abi.decode(callData[4:],(address, bytes32, bytes32, bytes32, bytes32, uint256, uint256));
 
@@ -94,77 +90,65 @@ contract PaymasterUniGovernance is BasePaymaster {
         require(data2 == _DATA_PART_2, "data2 needs to be 0x44");
         require(bytes4(castVoteHash) == bytes4(_CASTVOTE_TYPEHASH), "incorrect castVote signature");
 
-        // validate that it's an active proposal
-        // Note: Ideally, we would call UNI GovernorBravo contract to confirm proposalId is currently active
-        // but that's not allowed in this function
-        // Instead, we rely on an owner-updated mapping of proposalId to start and end timestamp & blocks
-        ProposalWindow memory proposalWindow = _proposals[proposalId];
-        require(proposalWindow.startTimestamp > 0, "proposalId not found");
+        // proposalId checks happen outside this function
+
         // confirm  support is 0, 1, or 2
         require(uint8(support256) <= 2, "support must be 0, 1, or 2");
     }
 
-    // TODO: figure out if this is allowed by storage access rules
-    function _getProposalInfo(uint _proposalId) private view returns (uint256, uint256, uint256, uint256, bool, bool) {
-        GovernorBravoDelegateStorageV1 governorBravo = GovernorBravoDelegateStorageV1(_GOVERNOR_BRAVO_ADDRESS);
-        (
-            uint256 id, 
-            , 
-            uint256 eta, 
-            uint256 startBlock, 
-            uint256 endBlock,
-            , 
-            , 
-            ,
-            bool canceled, 
-            bool executed
-        ) = governorBravo.proposals(_proposalId);
-        return (
-            id,
-            eta,
-            startBlock, 
-            endBlock, 
-            canceled, 
-            executed
-        );
-    }
-
-    // detect all proposal states to disallow obvious proposals that aren't active
-    function _checkProposalState(uint _proposalId) private view returns (uint256, uint256) {
-        (uint256 id, uint256 eta, uint256 startBlock, uint256 endBlock, bool canceled, bool executed) = _getProposalInfo(_proposalId);
-
-        // confirm proposal exists
-        require(id > 0, "proposalId not found");
-
-        // not canceled
-        require(canceled == false, "proposal was already canceled");
+    // have to copy this code from UNI contract because first line isn't allowed in the paymaster verification step
+    // https://etherscan.io/address/0x1f9840a85d5af5bf1d1762f925bdaddc4201f984#code#L474
+    /**
+     * @notice Determine the prior number of votes for an account as of a block number
+     * @dev Block number must be a finalized block or else this function will revert to prevent misinformation.
+     * @param account The address of the account to check
+     * @param blockNumber The block number to get the vote balance at
+     * @return The number of votes the account had as of the given block
+     */
+    function getPriorVotes(address account, uint blockNumber) public view returns (uint96) {
+        // following line not allowed due to block.number call
+        // require(blockNumber < block.number, "Uni::getPriorVotes: not yet determined");
+        IUni uni = IUni(_UNI_TOKEN_ADDRESS);
         
-        // not executed
-        require(executed == false, "proposal was already executed");
+        uint32 nCheckpoints = uni.numCheckpoints(account);
+        if (nCheckpoints == 0) {
+            return 0;
+        }
 
-        // not queued
-        require(eta > 0, "proposal is already queued or succeeded");
+        (uint32 fromBlockIndexNminus1, uint96 votesIndexNminus1) = uni.checkpoints(account, nCheckpoints - 1);
+        // First check most recent balance
+        if (fromBlockIndexNminus1 <= blockNumber) {
+            return votesIndexNminus1;
+        }
 
-        // pending, defeated, expired, succeeded: handled later with validAfter and validUntil
-        return (startBlock, endBlock);
+        // Next check implicit zero balance
+        (uint32 fromBlockIndex0, ) = uni.checkpoints(account, 0);
+        if (fromBlockIndex0 > blockNumber) {
+            return 0;
+        }
+
+        uint32 lower = 0;
+        uint32 upper = nCheckpoints - 1;
+        while (upper > lower) {
+            uint32 center = upper - (upper - lower) / 2; // ceil, avoiding overflow
+            (uint32 fromBlock, uint96 votes) = uni.checkpoints(account, center);
+            if (fromBlock == blockNumber) {
+                return votes;
+            } else if (fromBlock < blockNumber) {
+                lower = center;
+            } else {
+                upper = center - 1;
+            }
+        }
+        (, uint96 votesIndexLower) = uni.checkpoints(account, lower);
+        return votesIndexLower;
     }
 
-
-    /*
-    Ideal checks
-    4. UNI Governance related checks
-        a. check that the proposalId is currently active 
-            - can't access storage of another contract, so handled with internal mapping 
-                that needs to be updated manually (see #2 above)
-        b. check that there is UNI delegated before the startBlock
-            - based on spec, this should be accessible via UNI checkPoints mapping
-        c. check that they haven't voted already
-    */
     function _validatePaymasterUserOp(UserOperation calldata userOp, bytes32, uint256 maxCost)
     internal virtual override view
     returns (bytes memory context, uint256 validationData) {
 
-        // TODO: check that it's a SimpleAccount or an AA wallet. Is this possible or needed?
+        // TODO: check that it's a SimpleAccount or an AA wallet. Confirm if it's possible and/or needed?
         
         // check that calldata is 452 bytes
         require(userOp.callData.length == 452, "callData must be 452 bytes");
@@ -175,31 +159,18 @@ contract PaymasterUniGovernance is BasePaymaster {
         // check callData is valid
         _verifyCallData(userOp.callData);
 
-        // Two paths to confirm that proposal is active
-        // Path 1: check proposal state and use validAfter and validUntil
-        uint proposalId = abi.decode(userOp.callData[164:196],(uint));
-        (uint256 startBlock, uint256 endBlock) = _checkProposalState(proposalId);
-        uint256 validUntil = endBlock; // not correct, need timestamp
-        uint256 validAfter = startBlock; // not correct, need timestamp
-
-        // Path 2: use the manual proposal data and validAfter and validUntil
-        // this assumes PM can't access proposal data from GovernorBravo due to 
-        // storage access rules
-        // ProposalWindow memory proposalWindow = _proposals[proposalId];
-        // require(proposalWindow.startTimestamp > 0, "proposalId not found");
-        // uint256 validUntil = proposalWindow.endTimestamp;
-        // uint256 validAfter = proposalWindow.startTimestamp;
+        // check proposal exists in internal mapping
+        uint256 proposalId = abi.decode(userOp.callData[164:196], (uint256));
+        ProposalWindow memory proposalWindow = _proposals[proposalId];
+        require(proposalWindow.startTimestamp > 0, "proposalId not found");
+        uint256 validUntil = proposalWindow.endTimestamp; // TODO: could this be calculated from endBlock?
+        uint256 validAfter = proposalWindow.startTimestamp; // TODO: could this be calculated from startBlock?
 
         // Check that UNI is delegated before the startBlock
-        IUni uni = IUni(_UNI_TOKEN_ADDRESS);
-        uint96 delegatedUni = uni.getPriorVotes(userOp.sender, _proposals[proposalId].startBlock); // technically this is allowed by the spec
+        uint96 delegatedUni = getPriorVotes(userOp.sender, _proposals[proposalId].startBlock); // technically this is allowed by the spec
         require(delegatedUni > 0, "no UNI delegated");
 
-        // Check that they haven't voted already
-        // TODO: running into issues extract `hasVoted` from GovernorBravo.Proposals(proposalId).receipts(userOp.sender)
-
-        // ensure they haven't voted already through this paymaster
-        // check our internal mapping
+        // Check that they haven't voted already in our internal mapping
         require(votingRecord[userOp.sender][proposalId] == false, "already voted");
 
         return (abi.encodePacked(userOp.sender, proposalId), uint256(bytes32(abi.encodePacked(address(0), uint48(validUntil),uint48(validAfter)))));
