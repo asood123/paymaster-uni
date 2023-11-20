@@ -10,7 +10,7 @@ import {GovernorBravoDelegateStorageV1} from "compound-protocol/contracts/Govern
 // import {GovernorBravoDelegateStorageCustomV1} from "compound-protocol/contracts/Governance/GovernorBravoCustomInterfaces.sol";
 import "forge-std/console.sol";
 
-// TODO: useful to have both timestamp and block
+// useful to have both timestamp and block
 struct ProposalWindow {
     uint256 startTimestamp;
     uint256 endTimestamp;
@@ -30,7 +30,7 @@ contract PaymasterUniGovernance is BasePaymaster {
     
     // Requires proposals to be manually added
     mapping(uint256 => ProposalWindow) private _proposals; 
-    uint256 _maxCostAllowed = 12345; // TODO: calculate reasonable upper bound and update
+    uint256 _maxCostAllowed = 123456789; // TODO: calculate reasonable upper bound and update
 
     mapping(address => mapping(uint256 => bool)) public votingRecord;
 
@@ -47,19 +47,21 @@ contract PaymasterUniGovernance is BasePaymaster {
     }
 
     /* HELPERS for Paymaster state*/
-
+    // only needed (Path 2 below) if storage access rules don't allow access to GovernorBravo's proposal data
     function addOrModifyProposal(uint256 _proposalId, uint256 startTimestamp, uint256 endTimestamp, uint256 startBlock, uint256 endBlock) public  onlyOwner{
         _proposals[_proposalId] = ProposalWindow(startTimestamp, endTimestamp, startBlock, endBlock);
     }
 
 
     // needed, in case a proposal is canceled
+    // only needed (Path 2 below) if storage access rules don't allow access to GovernorBravo's proposal data
     function expireProposal(uint256 _proposalId) public  onlyOwner{
         ProposalWindow memory proposalWindow = _proposals[_proposalId];
         require(proposalWindow.startTimestamp > 0, "proposalId not found");
         _proposals[_proposalId] = ProposalWindow(0, 0, 0, 0);
     }
 
+    // only needed (Path 2 below) if storage access rules don't allow access to GovernorBravo's proposal data
     function getProposalId(uint256 _proposalId) public view returns (ProposalWindow memory) {
         return _proposals[_proposalId];
     }
@@ -69,7 +71,6 @@ contract PaymasterUniGovernance is BasePaymaster {
     }
 
     /* Helpers for validation */
-
     function _verifyCallData(bytes calldata callData) private view {
         // extract initial `execute` signature
         // need to extract this separately because of the way abi.decode works
@@ -128,10 +129,12 @@ contract PaymasterUniGovernance is BasePaymaster {
         );
     }
 
-    function _checkProposalState(uint _proposalId) private view {
-        (, uint256 eta, , , bool canceled, bool executed) = _getProposalInfo(_proposalId);
+    // detect all proposal states to disallow obvious proposals that aren't active
+    function _checkProposalState(uint _proposalId) private view returns (uint256, uint256) {
+        (uint256 id, uint256 eta, uint256 startBlock, uint256 endBlock, bool canceled, bool executed) = _getProposalInfo(_proposalId);
 
-        // detect all proposal states to disallow obvious proposals that aren't active
+        // confirm proposal exists
+        require(id > 0, "proposalId not found");
 
         // not canceled
         require(canceled == false, "proposal was already canceled");
@@ -142,7 +145,8 @@ contract PaymasterUniGovernance is BasePaymaster {
         // not queued
         require(eta > 0, "proposal is already queued or succeeded");
 
-        // pending, defeated, expired, succeeded: handled later with validAfter and validUntil, 
+        // pending, defeated, expired, succeeded: handled later with validAfter and validUntil
+        return (startBlock, endBlock);
     }
 
 
@@ -171,10 +175,21 @@ contract PaymasterUniGovernance is BasePaymaster {
         // check callData is valid
         _verifyCallData(userOp.callData);
 
-        // check proposal state
+        // Two paths to confirm that proposal is active
+        // Path 1: check proposal state and use validAfter and validUntil
         uint proposalId = abi.decode(userOp.callData[164:196],(uint));
-        _checkProposalState(proposalId);
-        
+        (uint256 startBlock, uint256 endBlock) = _checkProposalState(proposalId);
+        uint256 validUntil = endBlock; // not correct, need timestamp
+        uint256 validAfter = startBlock; // not correct, need timestamp
+
+        // Path 2: use the manual proposal data and validAfter and validUntil
+        // this assumes PM can't access proposal data from GovernorBravo due to 
+        // storage access rules
+        // ProposalWindow memory proposalWindow = _proposals[proposalId];
+        // require(proposalWindow.startTimestamp > 0, "proposalId not found");
+        // uint256 validUntil = proposalWindow.endTimestamp;
+        // uint256 validAfter = proposalWindow.startTimestamp;
+
         // Check that UNI is delegated before the startBlock
         IUni uni = IUni(_UNI_TOKEN_ADDRESS);
         uint96 delegatedUni = uni.getPriorVotes(userOp.sender, _proposals[proposalId].startBlock); // technically this is allowed by the spec
@@ -187,8 +202,7 @@ contract PaymasterUniGovernance is BasePaymaster {
         // check our internal mapping
         require(votingRecord[userOp.sender][proposalId] == false, "already voted");
 
-        ProposalWindow memory pw = _proposals[proposalId];
-        return (abi.encodePacked(userOp.sender, proposalId), uint256(bytes32(abi.encodePacked(address(0), uint48(pw.endTimestamp),uint48(pw.startTimestamp)))));
+        return (abi.encodePacked(userOp.sender, proposalId), uint256(bytes32(abi.encodePacked(address(0), uint48(validUntil),uint48(validAfter)))));
     }
 
     // called twice if first time reverts
@@ -215,8 +229,8 @@ contract PaymasterUniGovernance is BasePaymaster {
     // encodeFunctionData("execute", [to, value, data])
     // calldata: "0xb61d27f60000000000000000000000004bd047ca72fa05f0b89ad08fe5ba5ccdc07dffbf00000000000000000000000000000000000000000000000000038d7ea4c6800000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000"
     // 0x
-    // 32: b61d27f6000000000000000000000000
-    // 40: 4bd047ca72fa05f0b89ad08fe5ba5ccdc07dffbf
+    // 4: b61d27f6
+    // 64: 0000000000000000000000004bd047ca72fa05f0b89ad08fe5ba5ccdc07dffbf
     // 64: 00000000000000000000000000000000000000000000000000038d7ea4c68000
     // 64: 0000000000000000000000000000000000000000000000000000000000000060
     // 64: 0000000000000000000000000000000000000000000000000000000000000000
