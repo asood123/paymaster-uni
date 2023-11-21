@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {BasePaymaster} from "account-abstraction/core/BasePaymaster.sol";
+import {Pausable} from "openzeppelin-contracts/security/Pausable.sol";
 import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {UserOperationLib} from "account-abstraction/interfaces/UserOperation.sol";
@@ -18,7 +19,7 @@ struct ProposalWindow {
     uint256 endBlock;
 }
 
-contract PaymasterUniGovernance is BasePaymaster {
+contract PaymasterUniGovernance is BasePaymaster, Pausable {
     
     // constants
     address constant _GOVERNOR_BRAVO_ADDRESS = 0x408ED6354d4973f66138C91495F2f2FCbd8724C3;
@@ -32,6 +33,7 @@ contract PaymasterUniGovernance is BasePaymaster {
     mapping(uint256 => ProposalWindow) private _proposals; 
     uint256 _maxCostAllowed = 100000; // TODO: calculate reasonable upper bound and update
 
+    // Tracks whether a user has voted on a proposal through this paymaster
     mapping(address => mapping(uint256 => bool)) public votingRecord;
 
     // blocklist - tracks any address whose transaction reverts
@@ -46,12 +48,20 @@ contract PaymasterUniGovernance is BasePaymaster {
         }
     }
 
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
     /* HELPERS for Paymaster state*/
     function addOrModifyProposal(uint256 _proposalId, uint256 startTimestamp, uint256 endTimestamp, uint256 startBlock, uint256 endBlock) public  onlyOwner{
         _proposals[_proposalId] = ProposalWindow(startTimestamp, endTimestamp, startBlock, endBlock);
     }
 
-    // needed, in case a proposal is canceled
+    // nice to have to end proposals quickly
     function expireProposal(uint256 _proposalId) public  onlyOwner{
         ProposalWindow memory proposalWindow = _proposals[_proposalId];
         require(proposalWindow.startTimestamp > 0, "proposalId not found");
@@ -96,7 +106,7 @@ contract PaymasterUniGovernance is BasePaymaster {
         require(uint8(support256) <= 2, "support must be 0, 1, or 2");
     }
 
-    // have to copy this code from UNI contract because first line isn't allowed in the paymaster verification step
+    // Copid this function from UNI contract because first line isn't allowed in the paymaster verification step
     // https://etherscan.io/address/0x1f9840a85d5af5bf1d1762f925bdaddc4201f984#code#L474
     /**
      * @notice Determine the prior number of votes for an account as of a block number
@@ -145,7 +155,7 @@ contract PaymasterUniGovernance is BasePaymaster {
     }
 
     function _validatePaymasterUserOp(UserOperation calldata userOp, bytes32, uint256 maxCost)
-    internal virtual override view
+    internal virtual override view whenNotPaused
     returns (bytes memory context, uint256 validationData) {
 
         // TODO: check that it's a SimpleAccount or an AA wallet. Confirm if it's possible and/or needed?
@@ -176,22 +186,22 @@ contract PaymasterUniGovernance is BasePaymaster {
         return (abi.encodePacked(userOp.sender, proposalId), uint256(bytes32(abi.encodePacked(address(0), uint48(validUntil),uint48(validAfter)))));
     }
 
-    // called twice if first time reverts
+    // called twice if first call reverts
     function _postOp(PostOpMode mode, bytes calldata context, uint256) internal override {
         // need to handle three outcomes: opSucceeded, opReverted, postOpReverted
         // opSucceeded: do nothing
-        // TODO: is it worth recording this in a mapping?
         if (mode == PostOpMode.opSucceeded) {
             (address caller, uint256 proposalId) = abi.decode(context, (address, uint256));
             votingRecord[caller][proposalId] = true;
-            return;
         }
         // opReverted: record caller address in a blocklist?
-        if (mode == PostOpMode.opReverted) {
+        else if (mode == PostOpMode.opReverted) {
             (address caller, ) = abi.decode(context, (address, uint256));
             blocklist[caller] = true;
+        } else {
+            // postOpReverted: not applicable. Based on current implementation, this should never happen
+            // TODO: is it worth throwing an error?
         }
-        // postOpReverted: not applicable. Based on current implementation, this should never happen        
     }
 }
 
