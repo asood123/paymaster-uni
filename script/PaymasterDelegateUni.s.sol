@@ -8,23 +8,34 @@ import '../src/contracts/PaymasterDelegateUni.sol';
 // forge script script/PaymasterDelegateUni.s.sol --rpc-url $SEPOLIA_RPC_URL --broadcast --etherscan-api-key $ETHERSCAN_API_KEY --verify -vvvv
 contract PaymasterDelegatUniScript is Script {
 
-    function deploy() external {
+    function deploy() external returns (address) {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         vm.startBroadcast(deployerPrivateKey);
 
         IEntryPoint entryPoint = IEntryPoint(address(vm.envAddress("ENTRY_POINT")));
         PaymasterDelegateUni paymasterDelegateUni = new PaymasterDelegateUni(entryPoint);
+        address paymasterDelegateUniAddress = address(paymasterDelegateUni);
+        vm.stopBroadcast();
+        return paymasterDelegateUniAddress;
         // deposit into EntryPoint
-        paymasterDelegateUni.deposit{value: 100_000_000_000_000_000}();
+        // paymasterDelegateUni.deposit{value: 100_000_000_000_000_000}();
 
+    }
+
+    function deposit(address toAddress, uint256 amount) external {
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        vm.startBroadcast(deployerPrivateKey);
+        PaymasterDelegateUni paymasterDelegateUni = PaymasterDelegateUni(payable(toAddress));
+        paymasterDelegateUni.deposit{value: amount}();
         vm.stopBroadcast();
     }
 
-    function deposit() external {
+    function withdrawAll(address fromAddress) external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         vm.startBroadcast(deployerPrivateKey);
-        PaymasterDelegateUni paymasterDelegateUni = PaymasterDelegateUni(payable(address(vm.envAddress("PAYMASTER_DELEGATE_UNI"))));
-        paymasterDelegateUni.deposit{value: 12_000_000_000_000_000}();
+        PaymasterDelegateUni paymasterDelegateUni = PaymasterDelegateUni(payable(fromAddress));
+        uint256 depositedAmount = paymasterDelegateUni.getDeposit();
+        paymasterDelegateUni.withdrawTo(payable(address(vm.envAddress("PUBLIC_KEY"))), depositedAmount);
         vm.stopBroadcast();
     }
 
@@ -42,10 +53,15 @@ contract PaymasterDelegatUniScript is Script {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         vm.startBroadcast(deployerPrivateKey);
         PaymasterDelegateUni paymasterDelegateUni = PaymasterDelegateUni(payable(address(vm.envAddress("PAYMASTER_DELEGATE_UNI"))));
-        paymasterDelegateUni.updateMaxCostAllowed(100_000_000_000_000_000);
+        paymasterDelegateUni.updateMaxCostAllowed(200_000_000_000_000_000);
         vm.stopBroadcast();
     }
+
+
     function run() external {
-        this.deploy();
+        //address deployedAddress = this.deploy();
+        address deployedAddress = address(vm.envAddress("PAYMASTER_DELEGATE_UNI"));
+        this.deposit(deployedAddress, 200_000_000_000_000_000);
+        // this.withdrawAll();
     }
 }

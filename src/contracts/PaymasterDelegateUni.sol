@@ -86,7 +86,8 @@ contract PaymasterDelegateUni is BasePaymaster, Pausable {
     returns (bytes memory context, uint256 validationData) {
 
         // check maxCost is less than _maxCostAllowed
-        require(maxCost < _maxCostAllowed, "maxCost exceeds allowed amount");
+        // TODO: reenable after we get a working version
+        // require(maxCost < _maxCostAllowed, "maxCost exceeds allowed amount");
         // need to verify two paths: either castVote or delegate
         _verifyCallDataForDelegateAction(userOp.callData);
         // TODO: need additional checks like only allow delegation once x period of time
