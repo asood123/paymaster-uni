@@ -8,7 +8,6 @@ import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {UserOperationLib} from "account-abstraction/interfaces/UserOperation.sol";
 import {IUni} from "uni/interfaces/IUni.sol";
 import {GovernorBravoDelegateStorageV1} from "compound-protocol/contracts/Governance/GovernorBravoInterfaces.sol";
-// import {GovernorBravoDelegateStorageCustomV1} from "compound-protocol/contracts/Governance/GovernorBravoCustomInterfaces.sol";
 import "forge-std/console.sol";
 
 // useful to have both timestamp and block
@@ -26,12 +25,17 @@ contract PaymasterUniGovernance is BasePaymaster, Pausable {
     address constant _UNI_TOKEN_ADDRESS = 0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984;
     bytes32 constant _EXECUTE_TYPEHASH = keccak256("execute(address,uint256,bytes)");
     bytes32 constant _CASTVOTE_TYPEHASH = keccak256("castVote(uint256,uint8)");
-    bytes32 constant _DATA_PART_1 = hex"0000000000000000000000000000000000000000000000000000000000000060"; // based on observed data
-    bytes32 constant _DATA_PART_2 = hex"0000000000000000000000000000000000000000000000000000000000000044"; // based on observed data
-    
+    bytes32 constant _CASTVOTE_DATA_PART_1 = hex"0000000000000000000000000000000000000000000000000000000000000060"; // based on observed data
+    bytes32 constant _CASTVOTE_DATA_PART_2 = hex"0000000000000000000000000000000000000000000000000000000000000044"; // based on observed data
+
+    bytes32 constant _DELEGATE_TYPEHASH = keccak256("delegate(address)");
+    bytes32 constant _DELEGATE_DATA_PART_1 = hex"0000000000000000000000000000000000000000000000000000000000000060"; // based on observed data
+    bytes32 constant _DELEGATE_DATA_PART_2 = hex"0000000000000000000000000000000000000000000000000000000000000024"; // based on observed data
+
+
     // Requires proposals to be manually added
     mapping(uint256 => ProposalWindow) private _proposals; 
-    uint256 _maxCostAllowed = 100000; // TODO: calculate reasonable upper bound and update
+    uint256 private _maxCostAllowed = 1_000_000_000_000_000; // TODO: calculate reasonable upper bound and update
 
     // Tracks whether a user has voted on a proposal through this paymaster
     mapping(address => mapping(uint256 => bool)) public votingRecord;
@@ -40,7 +44,7 @@ contract PaymasterUniGovernance is BasePaymaster, Pausable {
     mapping(address => bool) public blocklist;
 
     constructor(IEntryPoint _entryPoint) BasePaymaster(_entryPoint) {
-        // TODO: figure out if this is needed; commenting out for now to get tests to pass
+        // TODO: figure out if this is needed in our implementation
         // to support "deterministic address" factory
         // solhint-disable avoid-tx-origin
         if (tx.origin != msg.sender) {
@@ -57,7 +61,13 @@ contract PaymasterUniGovernance is BasePaymaster, Pausable {
     }
 
     /* HELPERS for Paymaster state*/
-    function addOrModifyProposal(uint256 _proposalId, uint256 startTimestamp, uint256 endTimestamp, uint256 startBlock, uint256 endBlock) public  onlyOwner{
+    function addOrModifyProposal(
+        uint256 _proposalId, 
+        uint256 startTimestamp, 
+        uint256 endTimestamp, 
+        uint256 startBlock, 
+        uint256 endBlock
+        ) public onlyOwner {
         _proposals[_proposalId] = ProposalWindow(startTimestamp, endTimestamp, startBlock, endBlock);
     }
 
@@ -72,12 +82,17 @@ contract PaymasterUniGovernance is BasePaymaster, Pausable {
         return _proposals[_proposalId];
     }
 
+    function getMaxCostAllowed() public view returns (uint256) {
+        return _maxCostAllowed;
+    }
+
     function updateMaxCostAllowed(uint256 maxCost) public onlyOwner {
         _maxCostAllowed = maxCost;
     }
 
     /* Helpers for validation */
-    function _verifyCallData(bytes calldata callData) private pure {
+    function _verifyCallDataForCastVote(bytes calldata callData) internal pure {
+        require(callData.length == 228, "callData must be 228 bytes");
         // extract initial `execute` signature
         // need to extract this separately because of the way abi.decode works
         bytes4 executeSig = bytes4(callData[:4]);
@@ -96,8 +111,8 @@ contract PaymasterUniGovernance is BasePaymaster, Pausable {
         // check each one
         require(toAddress == _GOVERNOR_BRAVO_ADDRESS, "address needs to point to GovernorBravo");
         require(value == 0, "value needs to be 0"); // no need to send any money to paymaster
-        require(data1 == _DATA_PART_1, "data1 needs to be 0x60");
-        require(data2 == _DATA_PART_2, "data2 needs to be 0x44");
+        require(data1 == _CASTVOTE_DATA_PART_1, "data1 needs to be 0x60");
+        require(data2 == _CASTVOTE_DATA_PART_2, "data2 needs to be 0x44");
         require(bytes4(castVoteHash) == bytes4(_CASTVOTE_TYPEHASH), "incorrect castVote signature");
 
         // proposalId checks happen outside this function
@@ -106,7 +121,33 @@ contract PaymasterUniGovernance is BasePaymaster, Pausable {
         require(uint8(support256) <= 2, "support must be 0, 1, or 2");
     }
 
-    // Copid this function from UNI contract because first line isn't allowed in the paymaster verification step
+    function _verifyCallDataForDelegate(bytes calldata callData) internal pure {
+        require(callData.length == 196, "callData must be 196 bytes");
+        // extract initial `execute` signature
+        // need to extract this separately because of the way abi.decode works
+        bytes4 executeSig = bytes4(callData[:4]);
+        require(executeSig == bytes4(_EXECUTE_TYPEHASH), "incorrect execute signature");        
+        // extract rest of info from callData
+        (
+            address toAddress, 
+            bytes32 value, 
+            bytes32 data1, 
+            bytes32 data2
+            ) = abi.decode(callData[4:132],(address, bytes32, bytes32, bytes32));
+        bytes4 delegateHash = bytes4(callData[132:136]);
+        address delegatee = abi.decode(callData[136:168], (address));
+        // note that there is additional 28 bytes of filler data at the end
+
+        // check each one
+        require(toAddress == _UNI_TOKEN_ADDRESS, "address needs to point to UNI token address");
+        require(value == 0, "value needs to be 0"); // no need to send any money to paymaster
+        require(data1 == _DELEGATE_DATA_PART_1, "data1 needs to be 0x60");
+        require(data2 == _DELEGATE_DATA_PART_2, "data2 needs to be 0x44");
+        require(bytes4(delegateHash) == bytes4(_DELEGATE_TYPEHASH), "incorrect delegate signature");
+        require(delegatee != address(0), "delegatee cannot be 0x0");
+    }
+
+    // Copied this function from UNI contract because first line isn't allowed in the paymaster verification step
     // https://etherscan.io/address/0x1f9840a85d5af5bf1d1762f925bdaddc4201f984#code#L474
     /**
      * @notice Determine the prior number of votes for an account as of a block number
@@ -159,53 +200,68 @@ contract PaymasterUniGovernance is BasePaymaster, Pausable {
     returns (bytes memory context, uint256 validationData) {
 
         // TODO: check that it's a SimpleAccount or an AA wallet. Confirm if it's possible and/or needed?
-        
-        // check that calldata is 452 bytes
-        require(userOp.callData.length == 452, "callData must be 452 bytes");
 
         // check maxCost is less than _maxCostAllowed
         require(maxCost < _maxCostAllowed, "maxCost exceeds allowed amount");
+        // need to verify two paths: either castVote or delegate
+        if (userOp.callData.length == 228) {
+            _verifyCallDataForCastVote(userOp.callData);
+            
+            // check proposal exists in internal mapping
+            uint256 proposalId = abi.decode(userOp.callData[164:196], (uint256));
+            ProposalWindow memory proposalWindow = _proposals[proposalId];
+            require(proposalWindow.startTimestamp > 0, "proposalId not found");
+            uint256 validUntil = proposalWindow.endTimestamp; // TODO: could this be calculated from endBlock?
+            uint256 validAfter = proposalWindow.startTimestamp; // TODO: could this be calculated from startBlock?
 
-        // check callData is valid
-        _verifyCallData(userOp.callData);
+            // Check that UNI is delegated before the startBlock
+            uint96 delegatedUni = getPriorVotes(userOp.sender, _proposals[proposalId].startBlock); // technically this is allowed by the spec
+            require(delegatedUni > 0, "no UNI delegated");
 
-        // check proposal exists in internal mapping
-        uint256 proposalId = abi.decode(userOp.callData[164:196], (uint256));
-        ProposalWindow memory proposalWindow = _proposals[proposalId];
-        require(proposalWindow.startTimestamp > 0, "proposalId not found");
-        uint256 validUntil = proposalWindow.endTimestamp; // TODO: could this be calculated from endBlock?
-        uint256 validAfter = proposalWindow.startTimestamp; // TODO: could this be calculated from startBlock?
+            // Check that they haven't voted already in our internal mapping
+            require(votingRecord[userOp.sender][proposalId] == false, "already voted");
 
-        // Check that UNI is delegated before the startBlock
-        uint96 delegatedUni = getPriorVotes(userOp.sender, _proposals[proposalId].startBlock); // technically this is allowed by the spec
-        require(delegatedUni > 0, "no UNI delegated");
-
-        // Check that they haven't voted already in our internal mapping
-        require(votingRecord[userOp.sender][proposalId] == false, "already voted");
-
-        return (abi.encodePacked(userOp.sender, proposalId), uint256(bytes32(abi.encodePacked(address(0), uint48(validUntil),uint48(validAfter)))));
+            // TODO: action recording can be a bool. for simplicity, using uint256
+            uint256 action = 1; // 1 for castVote
+            return (abi.encodePacked(userOp.sender, action, proposalId), uint256(bytes32(abi.encodePacked(address(0), uint48(validUntil),uint48(validAfter)))));
+        } else if (userOp.callData.length == 196) {
+            _verifyCallDataForDelegate(userOp.callData);
+            // TODO: need additional checks like only allow delegation once x period of time
+            
+            // third value unnecessary, TODO: figure out how to remove it.
+            uint256 action = 2; // 2 for delegate
+            uint256 proposalId = 0;
+            return (abi.encodePacked(userOp.sender, action, proposalId), 0); 
+        } else {
+            revert("callData must be 196 or 228 bytes");
+        }
     }
 
     // called twice if first call reverts
     function _postOp(PostOpMode mode, bytes calldata context, uint256) internal override {
         // need to handle three outcomes: opSucceeded, opReverted, postOpReverted
-        // opSucceeded: do nothing
+        // 1. opSucceeded: do nothing
         if (mode == PostOpMode.opSucceeded) {
-            (address caller, uint256 proposalId) = abi.decode(context, (address, uint256));
-            votingRecord[caller][proposalId] = true;
+            (address caller, uint256 action, uint256 proposalId) = abi.decode(context, (address, uint256, uint256));
+            if (action == 1) {
+                // record that user has voted on this proposal
+                votingRecord[caller][proposalId] = true;
+            } else {
+                // TODO: record delegating action
+            }
         }
-        // opReverted: record caller address in a blocklist?
+        // 2. opReverted: record caller address in a blocklist?
         else if (mode == PostOpMode.opReverted) {
-            (address caller, ) = abi.decode(context, (address, uint256));
+            (address caller, , ) = abi.decode(context, (address, uint256, uint256));
             blocklist[caller] = true;
+        // 3. postOpReverted: not applicable. Based on current implementation, this should never happen
         } else {
-            // postOpReverted: not applicable. Based on current implementation, this should never happen
             // TODO: is it worth throwing an error?
         }
     }
 }
 
-
+    // NOTES. TODO: remove before finalizing. Can use these for docs
     // example
     // encodeFunctionData("execute", [to, value, data])
     // calldata: "0xb61d27f60000000000000000000000004bd047ca72fa05f0b89ad08fe5ba5ccdc07dffbf00000000000000000000000000000000000000000000000000038d7ea4c6800000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000"
@@ -218,13 +274,13 @@ contract PaymasterUniGovernance is BasePaymaster, Pausable {
     
     // check userOp.calldata is:
     // - an instance of SimpleAccount
-    // - first 32 bytes is a call to "execute" (same as above)
-    // - next 40 bytes are the addres of governor bravo
-    // - next 64 bytes are 0 (no value sent)
-    // - ignore next 128 bytes
-    // - next 64 bytes are for "castVote"
-    // - next 64 bytes are the proposalId
-    // - next 64 bytes are the support (1 for yes, 0 for no)
+    // - first 4 bytes is a call to "execute" (same as above)
+    // - next 32 bytes are the addres of governor bravo
+    // - next 32 bytes are 0 (no value sent)
+    // - ignore next 64 bytes
+    // - next 32 bytes are for "castVote"
+    // - next 32 bytes are the proposalId
+    // - next 32 bytes are the support (1 for yes, 0 for no)
 
     // could also call governorBravo on chain to confirm if a proposal is currently pending?
     /*
@@ -265,3 +321,14 @@ contract PaymasterUniGovernance is BasePaymaster, Pausable {
     // (uint256 value, uint256 data1, uint256 data2, uint256 castVote, uint256 proposalId, uint256 support) = abi.decode(userOp.callData[72:],(uint256, uint256, uint256, uint256, uint256, uint256));
     // check execute is 0x56781388
 
+
+    // UNI Delegate call
+    // 0x
+    // b61d27f6 "execute" hash
+    // 0000000000000000000000001f9840a85d5af5bf1d1762f925bdaddc4201f984 Uni address
+    // 0000000000000000000000000000000000000000000000000000000000000000 value
+    // 0000000000000000000000000000000000000000000000000000000000000060 data1
+    // 0000000000000000000000000000000000000000000000000000000000000024 data2
+    // 5c19a95c "delegate" hash
+    // 000000000000000000000000b6c7ff166b0d27aa6132673838995f0fa68c7676 delgatee
+    // 00000000000000000000000000000000000000000000000000000000 filler

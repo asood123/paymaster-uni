@@ -24,7 +24,7 @@ contract PaymasterUniGovernanceScript is Script {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         vm.startBroadcast(deployerPrivateKey);
         PaymasterUniGovernance paymasterUniGovernance = PaymasterUniGovernance(payable(address(vm.envAddress("PAYMASTER_UNI_GOVERNANCE"))));
-        paymasterUniGovernance.deposit{value: 1_000_000_000_000_000}();
+        paymasterUniGovernance.deposit{value: 12_000_000_000_000_000}();
         vm.stopBroadcast();
     }
 
@@ -35,6 +35,14 @@ contract PaymasterUniGovernanceScript is Script {
         // PaymasterUniGovernance paymasterUniGovernance = PaymasterUniGovernance(payable(address(vm.envAddress("PAYMASTER_UNI_GOVERNANCE"))));
         (bool ok, ) = payable(address(vm.envAddress("PAYMASTER_UNI_GOVERNANCE"))).call{value: 1_000_000_000_000_000}("");
         require(ok, "send ETH failed");
+        vm.stopBroadcast();
+    }
+
+    function increaseMaxCostAllowed() external {
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        vm.startBroadcast(deployerPrivateKey);
+        PaymasterUniGovernance paymasterUniGovernance = PaymasterUniGovernance(payable(address(vm.envAddress("PAYMASTER_UNI_GOVERNANCE"))));
+        paymasterUniGovernance.updateMaxCostAllowed(100_000_000_000_000_000);
         vm.stopBroadcast();
     }
     function run() external {

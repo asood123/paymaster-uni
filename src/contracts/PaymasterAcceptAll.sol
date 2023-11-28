@@ -6,6 +6,7 @@ import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {UserOperationLib} from "account-abstraction/interfaces/UserOperation.sol";
 
+// Taken directly from Ethereum AA repo
 contract PaymasterAcceptAll is BasePaymaster {
     uint256 public number;
 

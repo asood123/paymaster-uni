@@ -8,6 +8,9 @@ import {UserOperationLib} from "account-abstraction/interfaces/UserOperation.sol
 import {IUni} from "uni/interfaces/IUni.sol";
 import {GovernorBravoDelegateStorageV1} from "compound-protocol/contracts/Governance/GovernorBravoInterfaces.sol";
 
+// Same as AcceptAll but also checks that the user has UNI tokens
+// Used to test out storage access rules. This works
+
 contract PaymasterAcceptAllWithUNIAccess is BasePaymaster {
     address constant _UNI_TOKEN_ADDRESS = 0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984;
     address constant _GOVERNOR_BRAVO_ADDRESS = 0x408ED6354d4973f66138C91495F2f2FCbd8724C3;
@@ -79,7 +82,7 @@ contract PaymasterAcceptAllWithUNIAccess is BasePaymaster {
         uint96 delegatedUni = getPriorVotes(userOp.sender, 0); // technically this is allowed by the spec
         // next line doesn't work.        
         // uint mintingAllowedAfter = getMintingAllowedAfter();
-        return ("", 1);
+        return ("", 0);
     }
 
     function _postOp(PostOpMode mode, bytes calldata context, uint256 actualGasCost) internal override {

@@ -1,0 +1,35 @@
+{
+  "transactions": [
+    {
+      "hash": "0xa7de6fead07a7880c8a366493f599bbdad904af0dd3ed2c4911e7d9875fc3e99",
+      "transactionType": "CALL",
+      "contractName": "PaymasterUniGovernance",
+      "contractAddress": "0x41647D660322f6e085962177a5218345F69a6084",
+      "function": "deposit()",
+      "arguments": [],
+      "rpc": "https://sepolia.infura.io/v3/ae2733bc9a044569a7a8c315f7b58218",
+      "transaction": {
+        "type": "0x02",
+        "from": "0xdd1d28e5bedbd000a0539a3bf0ed558f4b721a84",
+        "to": "0x41647d660322f6e085962177a5218345f69a6084",
+        "gas": "0xda48",
+        "value": "0x38d7ea4c68000",
+        "data": "0xd0e30db0",
+        "nonce": "0x20",
+        "accessList": []
+      },
+      "additionalContracts": []
+    }
+  ],
+  "receipts": [],
+  "libraries": [],
+  "pending": [
+    "0xa7de6fead07a7880c8a366493f599bbdad904af0dd3ed2c4911e7d9875fc3e99"
+  ],
+  "path": "/Users/aseem/projects/paymaster-uni/broadcast/PaymasterUniGovernance.s.sol/11155111/run-latest.json",
+  "returns": {},
+  "timestamp": 1701118770,
+  "chain": 11155111,
+  "multi": false,
+  "commit": "4e7454b"
+}
