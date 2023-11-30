@@ -57,11 +57,39 @@ contract PaymasterDelegatUniScript is Script {
         vm.stopBroadcast();
     }
 
+    function addStake(address deployedAddress) external {
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        vm.startBroadcast(deployerPrivateKey);
+        PaymasterDelegateUni paymasterDelegateUni = PaymasterDelegateUni(payable(deployedAddress));
+        paymasterDelegateUni.addStake{value: 100_000_000_000_000_000}(1);
+        vm.stopBroadcast();
+    }
+
+    function unlockStake(address deployedAddress) external {
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        vm.startBroadcast(deployerPrivateKey);
+        PaymasterDelegateUni paymasterDelegateUni = PaymasterDelegateUni(payable(deployedAddress));
+        paymasterDelegateUni.unlockStake();
+        vm.stopBroadcast();
+    }
+
+    function withdrawStake(address deployedAddress) external {
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        vm.startBroadcast(deployerPrivateKey);
+        PaymasterDelegateUni paymasterDelegateUni = PaymasterDelegateUni(payable(deployedAddress));
+        paymasterDelegateUni.withdrawStake(payable(address(vm.envAddress("PUBLIC_KEY"))));
+        vm.stopBroadcast();
+    }
+
 
     function run() external {
-        //address deployedAddress = this.deploy();
-        address deployedAddress = address(vm.envAddress("PAYMASTER_DELEGATE_UNI"));
+        address deployedAddress = this.deploy();
+        // address deployedAddress = address(vm.envAddress("PAYMASTER_DELEGATE_UNI"));
         this.deposit(deployedAddress, 200_000_000_000_000_000);
-        // this.withdrawAll();
+        this.addStake(deployedAddress);
+
+        //this.withdrawAll(deployedAddress);
+        // this.unlockStake(deployedAddress);
+        this.withdrawStake(deployedAddress);
     }
 }

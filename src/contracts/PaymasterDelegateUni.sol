@@ -12,14 +12,6 @@ import "forge-std/console.sol";
 // This paymaster pays only for delegating UNI tokens to a specific address
 contract PaymasterDelegateUni is BasePaymaster, Pausable {
     
-    // constants
-    address constant _UNI_TOKEN_ADDRESS = 0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984;
-    bytes32 constant _EXECUTE_TYPEHASH = keccak256("execute(address,uint256,bytes)");
-
-    bytes32 constant _DELEGATE_TYPEHASH = keccak256("delegate(address)");
-    bytes32 constant _DELEGATE_DATA_PART_1 = hex"0000000000000000000000000000000000000000000000000000000000000060"; // based on observed data
-    bytes32 constant _DELEGATE_DATA_PART_2 = hex"0000000000000000000000000000000000000000000000000000000000000024"; // based on observed data
-
     // in ETH
     uint256 private _maxCostAllowed = 100_000_000_000_000_000; // TODO: calculate reasonable upper bound and update
 
@@ -58,7 +50,7 @@ contract PaymasterDelegateUni is BasePaymaster, Pausable {
         // extract initial `execute` signature
         // need to extract this separately because of the way abi.decode works
         bytes4 executeSig = bytes4(callData[:4]);
-        require(executeSig == bytes4(_EXECUTE_TYPEHASH), "incorrect execute signature");        
+        require(executeSig == bytes4(keccak256("execute(address,uint256,bytes)")), "incorrect execute signature");        
         // extract rest of info from callData
         (
             address toAddress, 
@@ -71,14 +63,19 @@ contract PaymasterDelegateUni is BasePaymaster, Pausable {
         // note that there is additional 28 bytes of filler data at the end
 
         // check each one
-        require(toAddress == _UNI_TOKEN_ADDRESS, "address needs to point to UNI token address");
+        require(toAddress == 0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984, "address needs to point to UNI token address");
         require(value == 0, "value needs to be 0"); // no need to send any money to paymaster
-        require(data1 == _DELEGATE_DATA_PART_1, "data1 needs to be 0x60");
-        require(data2 == _DELEGATE_DATA_PART_2, "data2 needs to be 0x44");
-        require(bytes4(delegateHash) == bytes4(_DELEGATE_TYPEHASH), "incorrect delegate signature");
+        require(data1 == hex"0000000000000000000000000000000000000000000000000000000000000060", "data1 needs to be 0x60");
+        require(data2 == hex"0000000000000000000000000000000000000000000000000000000000000024", "data2 needs to be 0x24");
+        require(bytes4(delegateHash) == bytes4(keccak256("delegate(address)")), "incorrect delegate signature");
         require(delegatee != address(0), "delegatee cannot be 0x0");
     }
 
+    function _verifyUniHolding(address sender) internal view {
+        IUni uni = IUni(0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984);
+        uint256 uniBalance = uni.balanceOf(sender);
+        require(uniBalance > 0, "sender does not hold any UNI");
+    }
 
 
     function _validatePaymasterUserOp(UserOperation calldata userOp, bytes32, uint256 maxCost)
@@ -88,18 +85,20 @@ contract PaymasterDelegateUni is BasePaymaster, Pausable {
         // check maxCost is less than _maxCostAllowed
         // TODO: reenable after we get a working version
         // require(maxCost < _maxCostAllowed, "maxCost exceeds allowed amount");
-        // need to verify two paths: either castVote or delegate
-        _verifyCallDataForDelegateAction(userOp.callData);
-        // TODO: need additional checks like only allow delegation once x period of time
         
-        return (abi.encodePacked(userOp.sender), 0); 
+        _verifyCallDataForDelegateAction(userOp.callData);
+        // _verifyUniHolding(userOp.sender);
+        // TODO: need additional checks like only allow delegation once x period of time
+        // verify that sender holds UNI
+        // verify that they haven't delegated using Paymaster recently
+        return ("", 0); 
     }
 
     // called twice if first call reverts
     function _postOp(PostOpMode mode, bytes calldata context, uint256) internal override {
         // need to handle three outcomes: opSucceeded, opReverted, postOpReverted
         // 1. opSucceeded: do nothing
-        if (mode == PostOpMode.opSucceeded) {
+        /*if (mode == PostOpMode.opSucceeded) {
             (address caller) = abi.decode(context, (address));
             // TODO: record a successful delegation? Is this needed? Could read straight from UNI contract
         }
@@ -111,6 +110,7 @@ contract PaymasterDelegateUni is BasePaymaster, Pausable {
         } else {
             // TODO: is it worth throwing an error?
         }
+        */
     }
 }
 

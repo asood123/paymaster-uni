@@ -10,7 +10,6 @@ import {GovernorBravoDelegateStorageV1} from "compound-protocol/contracts/Govern
 
 // Same as AcceptAll but also checks that the user has UNI tokens
 // Used to test out storage access rules. This works
-
 contract PaymasterAcceptAllWithUNIAccess is BasePaymaster {
     address constant _UNI_TOKEN_ADDRESS = 0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984;
     address constant _GOVERNOR_BRAVO_ADDRESS = 0x408ED6354d4973f66138C91495F2f2FCbd8724C3;
