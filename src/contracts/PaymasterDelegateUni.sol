@@ -65,6 +65,18 @@ contract PaymasterDelegateUni is BasePaymaster, Pausable {
 
     /* Helpers for validation */
     function _verifyCallDataForDelegateAction(bytes calldata callData) internal pure {
+        
+        // UNI Delegate call
+        // 0x
+        // b61d27f6 "execute" hash
+        // 0000000000000000000000001f9840a85d5af5bf1d1762f925bdaddc4201f984 Uni address
+        // 0000000000000000000000000000000000000000000000000000000000000000 value
+        // 0000000000000000000000000000000000000000000000000000000000000060 data1
+        // 0000000000000000000000000000000000000000000000000000000000000024 data2
+        // 5c19a95c "delegate" hash
+        // 000000000000000000000000b6c7ff166b0d27aa6132673838995f0fa68c7676 delgatee
+        // 00000000000000000000000000000000000000000000000000000000 filler
+
         require(callData.length == 196, "callData must be 196 bytes");
         // extract initial `execute` signature
         // need to extract this separately because of the way abi.decode works
@@ -114,6 +126,8 @@ contract PaymasterDelegateUni is BasePaymaster, Pausable {
         uint256 validAfter = lastDelegationTimestamp[userOp.sender] + _minWaitBetweenDelegations;
 
         //Helpers._packValidationData(false, validUntil, validAfter)
+        // TODO: confirm if validAfter is 30 days away, does the Bundler holds it until then? Or does it
+        // have an expiration?
         return (abi.encode(userOp.sender), _packValidationData(false, uint48(0), uint48(validAfter))); 
     }
 
@@ -137,74 +151,3 @@ contract PaymasterDelegateUni is BasePaymaster, Pausable {
     }
 }
 
-    // NOTES. TODO: remove before finalizing. Can use these for docs
-    // example
-    // encodeFunctionData("execute", [to, value, data])
-    // calldata: "0xb61d27f60000000000000000000000004bd047ca72fa05f0b89ad08fe5ba5ccdc07dffbf00000000000000000000000000000000000000000000000000038d7ea4c6800000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000"
-    // 0x
-    // 4: b61d27f6
-    // 64: 0000000000000000000000004bd047ca72fa05f0b89ad08fe5ba5ccdc07dffbf
-    // 64: 00000000000000000000000000000000000000000000000000038d7ea4c68000
-    // 64: 0000000000000000000000000000000000000000000000000000000000000060
-    // 64: 0000000000000000000000000000000000000000000000000000000000000000
-    
-    // check userOp.calldata is:
-    // - an instance of SimpleAccount
-    // - first 4 bytes is a call to "execute" (same as above)
-    // - next 32 bytes are the addres of governor bravo
-    // - next 32 bytes are 0 (no value sent)
-    // - ignore next 64 bytes
-    // - next 32 bytes are for "castVote"
-    // - next 32 bytes are the proposalId
-    // - next 32 bytes are the support (1 for yes, 0 for no)
-
-    // could also call governorBravo on chain to confirm if a proposal is currently pending?
-    /*
-    enum ProposalState {
-        Pending,
-        Active,
-        Canceled,
-        Defeated,
-        Succeeded,
-        Queued,
-        Expired,
-        Executed
-    }*/
-
-    // governorbravo vote call
-    // 0x
-    // 32: b61d27f6 "execute"
-    // 64: 000000000000000000000000408ed6354d4973f66138c91495f2f2fcbd8724c3 "governorBravoAddress"
-    // 64: 0000000000000000000000000000000000000000000000000000000000000000 "value"
-    // rest: data
-    // 0000000000000000000000000000000000000000000000000000000000000060
-    // 0000000000000000000000000000000000000000000000000000000000000044
-    // 5678138800000000000000000000000000000000000000000000000000000000 "castVote"
-    // 0000000000000000000000000000000000000000000000000000000000000000 "proposalId"
-    // 0000000100000000000000000000000000000000000000000000000000000000 "support"
-
-    // 0x
-    // 32: b61d27f6 "execute"
-    // 64: 000000000000000000000000408ed6354d4973f66138c91495f2f2fcbd8724c3 "governorBravoAddress"
-    // 64: 0000000000000000000000000000000000000000000000000000000000000000 "value" Payable
-    // rest: data
-    // 0000000000000000000000000000000000000000000000000000000000000060
-    // 0000000000000000000000000000000000000000000000000000000000000044
-    // 5678138800000000000000000000000000000000000000000000000000000000 "castVote"
-    // 0000000000000000000000000000000000000000000000000000000000000033 "proposalId"
-    // 0000000100000000000000000000000000000000000000000000000000000000 "support"
-    // (uint256 execute, address toAddress) = abi.decode(userOp.callData[:72],(uint256, address));
-    // (uint256 value, uint256 data1, uint256 data2, uint256 castVote, uint256 proposalId, uint256 support) = abi.decode(userOp.callData[72:],(uint256, uint256, uint256, uint256, uint256, uint256));
-    // check execute is 0x56781388
-
-
-    // UNI Delegate call
-    // 0x
-    // b61d27f6 "execute" hash
-    // 0000000000000000000000001f9840a85d5af5bf1d1762f925bdaddc4201f984 Uni address
-    // 0000000000000000000000000000000000000000000000000000000000000000 value
-    // 0000000000000000000000000000000000000000000000000000000000000060 data1
-    // 0000000000000000000000000000000000000000000000000000000000000024 data2
-    // 5c19a95c "delegate" hash
-    // 000000000000000000000000b6c7ff166b0d27aa6132673838995f0fa68c7676 delgatee
-    // 00000000000000000000000000000000000000000000000000000000 filler
