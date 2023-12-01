@@ -81,15 +81,45 @@ contract PaymasterDelegatUniScript is Script {
         vm.stopBroadcast();
     }
 
+    function deployAndSetupNewPaymaster() external {
+        // deploy
+        address deployedAddress = this.deploy();
+        // add deposit
+        this.deposit(deployedAddress, 200_000_000_000_000_000);
+        // add stake
+        this.addStake(deployedAddress);
+    }
+
+    function abandonPaymasterStep1of2(address paymasterAddress) external {
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        vm.startBroadcast(deployerPrivateKey);
+        PaymasterDelegateUni paymasterDelegateUni = PaymasterDelegateUni(payable(paymasterAddress));
+        paymasterDelegateUni.unlockStake();
+        vm.stopBroadcast();
+    }
+
+    function abandonPaymasterStep2of2(address paymasterAddress, address withdrawToAddress) external {
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        vm.startBroadcast(deployerPrivateKey);
+        PaymasterDelegateUni paymasterDelegateUni = PaymasterDelegateUni(payable(paymasterAddress));
+        uint256 depositedAmount = paymasterDelegateUni.getDeposit();
+        paymasterDelegateUni.withdrawTo(payable(withdrawToAddress), depositedAmount);
+        paymasterDelegateUni.withdrawStake(payable(withdrawToAddress));
+        vm.stopBroadcast();
+    }
 
     function run() external {
-        address deployedAddress = this.deploy();
-        // address deployedAddress = address(vm.envAddress("PAYMASTER_DELEGATE_UNI"));
-        this.deposit(deployedAddress, 200_000_000_000_000_000);
-        this.addStake(deployedAddress);
+        /* to deploy */
+        this.deployAndSetupNewPaymaster();
+        
+        /* to withdraw (2 steps)
+            Step 0: update address of paymaster
+            Step 1: uncomment next two lines and run
+        */
+        // address deployedAddress = address(0x570f172eD6Eb3748dB046C244710BF473CB8a912);
+        // this.abandonPaymasterStep1of2(deployedAddress);
 
-        //this.withdrawAll(deployedAddress);
-        // this.unlockStake(deployedAddress);
-        this.withdrawStake(deployedAddress);
+        /* Step 2: comment above line and incomment this one */
+        // this.abandonPaymasterStep2of2(deployedAddress, address(vm.envAddress("PUBLIC_KEY")));
     }
 }

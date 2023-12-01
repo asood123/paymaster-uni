@@ -7,6 +7,7 @@ import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {UserOperationLib} from "account-abstraction/interfaces/UserOperation.sol";
 import {IUni} from "uni/interfaces/IUni.sol";
+import "account-abstraction/core/Helpers.sol";
 import "forge-std/console.sol";
 
 // This paymaster pays only for delegating UNI tokens to a specific address
@@ -14,9 +15,18 @@ contract PaymasterDelegateUni is BasePaymaster, Pausable {
     
     // in ETH
     uint256 private _maxCostAllowed = 100_000_000_000_000_000; // TODO: calculate reasonable upper bound and update
+    uint256 private _minWaitBetweenDelegations = 30 days; 
 
     // blocklist - tracks any address whose transaction reverts
     mapping(address => bool) public blocklist;
+
+    // Track the last known delegation happened from this account
+    // TODO: confirm that this data can't be reliably read from the UNI contract
+    // afaict, the UNI contract only records checkpoints based on the delegatee (not the delegator)
+    // so we can't tell when the last delegation happened from a specific account
+    // thus, we'll keep track of it from our own contract
+    mapping(address => uint256) public lastDelegationTimestamp;
+
 
     constructor(IEntryPoint _entryPoint) BasePaymaster(_entryPoint) {
         // TODO: figure out if this is needed in our implementation
@@ -42,6 +52,15 @@ contract PaymasterDelegateUni is BasePaymaster, Pausable {
 
     function updateMaxCostAllowed(uint256 maxCost) public onlyOwner {
         _maxCostAllowed = maxCost;
+    }
+
+    function getMinWaitBetweenDelegations() public view returns (uint256) {
+        return _minWaitBetweenDelegations;
+    }
+
+    function updateMinWaitBetweenDelegations(uint256 minWait) public onlyOwner {
+        require(minWait > 1 days, "minWait must be greater than 0");
+        _minWaitBetweenDelegations = minWait;
     }
 
     /* Helpers for validation */
@@ -77,30 +96,35 @@ contract PaymasterDelegateUni is BasePaymaster, Pausable {
         require(uniBalance > 0, "sender does not hold any UNI");
     }
 
-
     function _validatePaymasterUserOp(UserOperation calldata userOp, bytes32, uint256 maxCost)
     internal virtual override view whenNotPaused
     returns (bytes memory context, uint256 validationData) {
 
         // check maxCost is less than _maxCostAllowed
         // TODO: reenable after we get a working version
-        // require(maxCost < _maxCostAllowed, "maxCost exceeds allowed amount");
+        require(maxCost < _maxCostAllowed, "maxCost exceeds allowed amount");
         
         _verifyCallDataForDelegateAction(userOp.callData);
-        // _verifyUniHolding(userOp.sender);
-        // TODO: need additional checks like only allow delegation once x period of time
+
         // verify that sender holds UNI
-        // verify that they haven't delegated using Paymaster recently
-        return ("", 0); 
+        _verifyUniHolding(userOp.sender);
+
+
+        // calculate minTimestamp that the user can delegate again
+        uint256 validAfter = lastDelegationTimestamp[userOp.sender] + _minWaitBetweenDelegations;
+
+        //Helpers._packValidationData(false, validUntil, validAfter)
+        return (abi.encode(userOp.sender), _packValidationData(false, uint48(0), uint48(validAfter))); 
     }
 
     // called twice if first call reverts
     function _postOp(PostOpMode mode, bytes calldata context, uint256) internal override {
         // need to handle three outcomes: opSucceeded, opReverted, postOpReverted
         // 1. opSucceeded: do nothing
-        /*if (mode == PostOpMode.opSucceeded) {
+        if (mode == PostOpMode.opSucceeded) {
             (address caller) = abi.decode(context, (address));
             // TODO: record a successful delegation? Is this needed? Could read straight from UNI contract
+            lastDelegationTimestamp[caller] = block.timestamp;
         }
         // 2. opReverted: record caller address in a blocklist?
         else if (mode == PostOpMode.opReverted) {
@@ -110,7 +134,6 @@ contract PaymasterDelegateUni is BasePaymaster, Pausable {
         } else {
             // TODO: is it worth throwing an error?
         }
-        */
     }
 }
 
