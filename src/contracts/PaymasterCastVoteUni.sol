@@ -7,7 +7,7 @@ import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {UserOperationLib} from "account-abstraction/interfaces/UserOperation.sol";
 import {IUni} from "uni/interfaces/IUni.sol";
-import {GovernorBravoDelegateStorageV1} from "compound-protocol/contracts/Governance/GovernorBravoInterfaces.sol";
+import "account-abstraction/core/Helpers.sol";
 import "forge-std/console.sol";
 
 // useful to have both timestamp and block
@@ -18,7 +18,7 @@ struct ProposalWindow {
     uint256 endBlock;
 }
 
-contract PaymasterUniGovernance is BasePaymaster, Pausable {
+contract PaymasterCastVoteUni is BasePaymaster, Pausable {
     
     // constants
 
@@ -110,44 +110,6 @@ contract PaymasterUniGovernance is BasePaymaster, Pausable {
         require(uint8(support256) <= 2, "support must be 0, 1, or 2");
     }
 
-    function _verifyCallDataForDelegate(bytes calldata callData) internal pure {
-        
-        // UNI Delegate call
-        // 0x
-        // b61d27f6 "execute" hash
-        // 0000000000000000000000001f9840a85d5af5bf1d1762f925bdaddc4201f984 Uni address
-        // 0000000000000000000000000000000000000000000000000000000000000000 value
-        // 0000000000000000000000000000000000000000000000000000000000000060 data1
-        // 0000000000000000000000000000000000000000000000000000000000000024 data2
-        // 5c19a95c "delegate" hash
-        // 000000000000000000000000b6c7ff166b0d27aa6132673838995f0fa68c7676 delgatee
-        // 00000000000000000000000000000000000000000000000000000000 filler
-
-        require(callData.length == 196, "callData must be 196 bytes");
-        // extract initial `execute` signature
-        // need to extract this separately because of the way abi.decode works
-        bytes4 executeSig = bytes4(callData[:4]);
-        require(executeSig == bytes4(keccak256("execute(address,uint256,bytes)")), "incorrect execute signature");        
-        // extract rest of info from callData
-        (
-            address toAddress, 
-            bytes32 value, 
-            bytes32 data1, 
-            bytes32 data2
-            ) = abi.decode(callData[4:132],(address, bytes32, bytes32, bytes32));
-        bytes4 delegateHash = bytes4(callData[132:136]);
-        address delegatee = abi.decode(callData[136:168], (address));
-        // note that there is additional 28 bytes of filler data at the end
-
-        // check each one
-        require(toAddress == 0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984, "address needs to point to UNI token address");
-        require(value == 0, "value needs to be 0"); // no need to send any money to paymaster
-        require(data1 == hex"0000000000000000000000000000000000000000000000000000000000000060", "data1 needs to be 0x60");
-        require(data2 == hex"0000000000000000000000000000000000000000000000000000000000000024", "data2 needs to be 0x24");
-        require(bytes4(delegateHash) == bytes4(keccak256("delegate(address)")), "incorrect delegate signature");
-        require(delegatee != address(0), "delegatee cannot be 0x0");
-    }
-
     // Copied this function from UNI contract because first line isn't allowed in the paymaster verification step
     // https://etherscan.io/address/0x1f9840a85d5af5bf1d1762f925bdaddc4201f984#code#L474
     /**
@@ -204,38 +166,25 @@ contract PaymasterUniGovernance is BasePaymaster, Pausable {
 
         // check maxCost is less than _maxCostAllowed
         require(maxCost < _maxCostAllowed, "maxCost exceeds allowed amount");
-        // need to verify two paths: either castVote or delegate
-        if (userOp.callData.length == 228) {
-            _verifyCallDataForCastVote(userOp.callData);
-            
-            // check proposal exists in internal mapping
-            uint256 proposalId = abi.decode(userOp.callData[164:196], (uint256));
-            ProposalWindow memory proposalWindow = _proposals[proposalId];
-            require(proposalWindow.startTimestamp > 0, "proposalId not found");
-            uint256 validUntil = proposalWindow.endTimestamp; // TODO: could this be calculated from endBlock?
-            uint256 validAfter = proposalWindow.startTimestamp; // TODO: could this be calculated from startBlock?
+        require(userOp.callData.length == 228, "callData must be 228 bytes");
+        _verifyCallDataForCastVote(userOp.callData);
+        
+        // check proposal exists in internal mapping
+        uint256 proposalId = abi.decode(userOp.callData[164:196], (uint256));
+        ProposalWindow memory proposalWindow = _proposals[proposalId];
+        require(proposalWindow.startTimestamp > 0, "proposalId not found");
+        uint256 validUntil = proposalWindow.endTimestamp; // TODO: could this be calculated from endBlock?
+        uint256 validAfter = proposalWindow.startTimestamp; // TODO: could this be calculated from startBlock?
 
-            // Check that UNI is delegated before the startBlock
-            uint96 delegatedUni = getPriorVotes(userOp.sender, _proposals[proposalId].startBlock); // technically this is allowed by the spec
-            require(delegatedUni > 0, "no UNI delegated");
+        // Check that UNI is delegated before the startBlock
+        uint96 delegatedUni = getPriorVotes(userOp.sender, _proposals[proposalId].startBlock); // technically this is allowed by the spec
+        require(delegatedUni > 0, "no UNI delegated");
 
-            // Check that they haven't voted already in our internal mapping
-            require(votingRecord[userOp.sender][proposalId] == false, "already voted");
+        // Check that they haven't voted already in our internal mapping
+        require(votingRecord[userOp.sender][proposalId] == false, "already voted");
 
-            // TODO: action recording can be a bool. for simplicity, using uint256
-            uint256 action = 1; // 1 for castVote
-            return (abi.encodePacked(userOp.sender, action, proposalId), uint256(bytes32(abi.encodePacked(address(0), uint48(validUntil),uint48(validAfter)))));
-        } else if (userOp.callData.length == 196) {
-            _verifyCallDataForDelegate(userOp.callData);
-            // TODO: need additional checks like only allow delegation once x period of time
-            
-            // third value unnecessary, TODO: figure out how to remove it.
-            uint256 action = 2; // 2 for delegate
-            uint256 proposalId = 0;
-            return (abi.encodePacked(userOp.sender, action, proposalId), 0); 
-        } else {
-            revert("callData must be 196 or 228 bytes");
-        }
+        return (abi.encodePacked(userOp.sender, proposalId), _packValidationData(false, uint48(validUntil), uint48(validAfter)));
+    
     }
 
     // called twice if first call reverts
@@ -243,17 +192,13 @@ contract PaymasterUniGovernance is BasePaymaster, Pausable {
         // need to handle three outcomes: opSucceeded, opReverted, postOpReverted
         // 1. opSucceeded: do nothing
         if (mode == PostOpMode.opSucceeded) {
-            (address caller, uint256 action, uint256 proposalId) = abi.decode(context, (address, uint256, uint256));
-            if (action == 1) {
+            (address caller, uint256 proposalId) = abi.decode(context, (address, uint256));
                 // record that user has voted on this proposal
-                votingRecord[caller][proposalId] = true;
-            } else {
-                // TODO: record delegating action
-            }
+            votingRecord[caller][proposalId] = true;
         }
         // 2. opReverted: record caller address in a blocklist?
         else if (mode == PostOpMode.opReverted) {
-            (address caller, , ) = abi.decode(context, (address, uint256, uint256));
+            (address caller, ) = abi.decode(context, (address, uint256));
             blocklist[caller] = true;
         // 3. postOpReverted: not applicable. Based on current implementation, this should never happen
         } else {

@@ -2,19 +2,20 @@
 pragma solidity ^0.8.13;
 
 import {BasePaymaster} from "account-abstraction/core/BasePaymaster.sol";
-import {Pausable} from "openzeppelin-contracts/security/Pausable.sol";
+import {Pausable} from "@openzeppelin/contracts/security/Pausable.sol";
 import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {UserOperationLib} from "account-abstraction/interfaces/UserOperation.sol";
 import {IUni} from "uni/interfaces/IUni.sol";
 import "account-abstraction/core/Helpers.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
 import "forge-std/console.sol";
 
 // This paymaster pays only for delegating UNI tokens to a specific address
 contract PaymasterDelegateUni is BasePaymaster, Pausable {
     
     // in ETH
-    uint256 private _maxCostAllowed = 100_000_000_000_000_000; // TODO: calculate reasonable upper bound and update
+    uint256 private _maxCostAllowed = 200_000_000_000_000_000; // TODO: calculate reasonable upper bound and update
     uint256 private _minWaitBetweenDelegations = 30 days; 
 
     // blocklist - tracks any address whose transaction reverts
@@ -113,9 +114,9 @@ contract PaymasterDelegateUni is BasePaymaster, Pausable {
     returns (bytes memory context, uint256 validationData) {
 
         // check maxCost is less than _maxCostAllowed
-        // TODO: reenable after we get a working version
-        require(maxCost < _maxCostAllowed, "maxCost exceeds allowed amount");
+        require(maxCost < _maxCostAllowed, string.concat(Strings.toString(maxCost), " maxCost exceeds allowed amount"));
         
+        // verify that calldata is accuarate.
         _verifyCallDataForDelegateAction(userOp.callData);
 
         // verify that sender holds UNI
@@ -137,7 +138,7 @@ contract PaymasterDelegateUni is BasePaymaster, Pausable {
         // 1. opSucceeded: do nothing
         if (mode == PostOpMode.opSucceeded) {
             (address caller) = abi.decode(context, (address));
-            // TODO: record a successful delegation? Is this needed? Could read straight from UNI contract
+            // TODO: Confirm that there is no way to read this from UNI contract
             lastDelegationTimestamp[caller] = block.timestamp;
         }
         // 2. opReverted: record caller address in a blocklist?
