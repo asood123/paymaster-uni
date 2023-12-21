@@ -116,7 +116,7 @@ contract PaymasterDelegatUniScript is Script {
             Step 0: update address of paymaster
             Step 1: uncomment next two lines and run
         */
-        // address deployedAddress = address(0xdE94fB0e0241FC3d1D5d36C861E4FDC1E56EdC42);
+        // address deployedAddress = address(0x4409a6647892B7Eeca5bC3b819576395173Cf722);
         // this.abandonPaymasterStep1of2(deployedAddress);
 
         /* Step 2: comment above line and incomment this one */

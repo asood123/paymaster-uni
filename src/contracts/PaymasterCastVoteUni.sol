@@ -2,7 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {BasePaymaster} from "account-abstraction/core/BasePaymaster.sol";
-import {Pausable} from "openzeppelin-contracts/security/Pausable.sol";
+import {Pausable} from "@openzeppelin/contracts/security/Pausable.sol";
 import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {UserOperationLib} from "account-abstraction/interfaces/UserOperation.sol";
